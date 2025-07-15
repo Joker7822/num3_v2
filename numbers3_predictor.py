@@ -1764,11 +1764,20 @@ def train_transformer_with_cycle_attention(df, model_path="transformer_model.pth
     best_params = optimize_transformer_params(df, n_trials=20)
     print(f"[INFO] 最適パラメータで学習: {best_params}")
 
-    # === ② モデル定義（外部定義のCycleAttentionTransformerを使う前提） ===
+    embed_dim = best_params["embed_dim"]
+    num_heads = best_params["nhead"]
+
+    # ✅ embed_dimがnum_headsで割り切れない場合、自動補正
+    if embed_dim % num_heads != 0:
+        corrected_dim = num_heads * ((embed_dim // num_heads) + 1)
+        print(f"[WARNING] embed_dim={embed_dim} は num_heads={num_heads} で割り切れないため {corrected_dim} に補正します")
+        embed_dim = corrected_dim
+
+    # === ② モデル定義（CycleAttentionTransformerを使用） ===
     model = CycleAttentionTransformer(
         input_dim=40,
-        embed_dim=best_params["embed_dim"],
-        num_heads=best_params["nhead"],
+        embed_dim=embed_dim,
+        num_heads=num_heads,
         num_layers=best_params["num_layers"]
     )
 
@@ -1793,7 +1802,7 @@ def train_transformer_with_cycle_attention(df, model_path="transformer_model.pth
         loss.backward()
         optimizer.step()
 
-        if (epoch + 1) % 10 == 0:
+        if (epoch + 1) % 10 == 0 or epoch == 0:
             print(f"[Transformer] Epoch {epoch+1}, Loss: {loss.item():.4f}")
 
     # === ⑤ モデル保存 ===
