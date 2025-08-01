@@ -2649,9 +2649,16 @@ def bulk_predict_all_past_draws():
             encoder_path=encoder_path,
             epochs=50
         )
+        print("[INFO] モデル再トレーニングが完了しました。GitHubへpushします。")
+        git_commit_and_push(gpt_model_path, "Auto update GPT3Numbers model [skip ci]")
+        git_commit_and_push(encoder_path, "Auto update MemoryEncoder model [skip ci]")
 
     decoder.eval()
     encoder.eval()
+
+    # 以下は元の処理（短縮）
+    # ... この後は既存の bulk_predict_all_past_draws 処理を続けてください ...
+
 
     meta_clf = None
     try:
