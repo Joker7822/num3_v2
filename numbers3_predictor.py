@@ -2609,7 +2609,10 @@ def generate_progress_dashboard_text(eval_file="evaluation_result.csv", output_t
         print(f"[ERROR] ダッシュボード出力に失敗しました: {e}")
 
 def bulk_predict_all_past_draws():
-    
+    import torch
+    import pandas as pd
+    import os
+
     try:
         df = pd.read_csv("numbers3.csv")
         df["本数字"] = df["本数字"].apply(parse_number_string)
@@ -2632,16 +2635,20 @@ def bulk_predict_all_past_draws():
     gpt_model_path = "gpt3numbers.pth"
     encoder_path = "memory_encoder_3.pth"
 
-    if not os.path.exists(gpt_model_path) or not os.path.exists(encoder_path):
-        print("[INFO] GPT3Numbers モデルが存在しないため再学習を開始します")
-        decoder, encoder = train_gpt3numbers_model_with_memory(
-            save_path=gpt_model_path, encoder_path=encoder_path)
-    else:
-        decoder = GPT3Numbers().to(device)
-        encoder = MemoryEncoder().to(device)
+    decoder = GPT3Numbers(embed_dim=128).to(device)
+    encoder = MemoryEncoder(embed_dim=128).to(device)
+
+    try:
         decoder.load_state_dict(torch.load(gpt_model_path, map_location=device))
         encoder.load_state_dict(torch.load(encoder_path, map_location=device))
         print("[INFO] GPT3Numbers モデルを読み込みました")
+    except RuntimeError as e:
+        print(f"[WARNING] モデル構造が一致しません。再学習を行い、上書き保存します: {e}")
+        decoder, encoder = train_gpt3numbers_model_with_memory(
+            save_path=gpt_model_path,
+            encoder_path=encoder_path,
+            epochs=50
+        )
 
     decoder.eval()
     encoder.eval()
