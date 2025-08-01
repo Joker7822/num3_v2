@@ -34,7 +34,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 import optuna
 import matplotlib
-matplotlib.use('Agg')  # ← ★ この行を先に追加！
+matplotlib.use('Agg')  # 竊� 笘� 縺薙�陦後ｒ蜈医↓霑ｽ蜉���
 import matplotlib.pyplot as plt
 import aiohttp
 from random import shuffle
@@ -58,7 +58,7 @@ from collections import Counter
 import torch.nn.functional as F
 import math
 
-# Windows環境のイベントループポリシーを設定
+# Windows迺ｰ蠅��繧､繝吶Φ繝医Ν繝ｼ繝励�繝ｪ繧ｷ繝ｼ繧定ｨｭ螳�
 if platform.system() == "Windows":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
@@ -66,6 +66,496 @@ warnings.filterwarnings("ignore")
 
 SEED = 42
 random.seed(SEED)
+np.random.seed(SEED)
+torch.manual_seed(SEED)
+torch.cuda.manual_seed_all(SEED)
+
+def set_global_seed(seed=SEED):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+set_global_seed()
+
+import subprocess
+
+def git_commit_and_push(file_path, message):
+    try:
+        subprocess.run(["git", "add", file_path], check=True)
+        diff = subprocess.run(["git", "diff", "--cached", "--quiet"])
+        if diff.returncode != 0:
+            subprocess.run(["git", "config", "--global", "user.name", "github-actions"], check=True)
+            subprocess.run(["git", "config", "--global", "user.email", "github-actions@github.com"], check=True)
+            subprocess.run(["git", "commit", "-m", message], check=True)
+            subprocess.run(["git", "push"], check=True)
+        else:
+            print(f"[INFO] No changes in {file_path}")
+    except Exception as e:
+        print(f"[WARNING] Git commit/push failed: {e}")
+
+def calculate_reward(selected_numbers, winning_numbers, cycle_scores):
+    match_count = len(set(selected_numbers) & set(winning_numbers))
+    avg_cycle_score = np.mean([cycle_scores.get(n, 999) for n in selected_numbers])
+    reward = match_count * 0.5 + max(0, 1 - avg_cycle_score / 50)
+    return reward
+
+class LotoEnv(gym.Env):
+    def __init__(self, historical_numbers):
+        super(LotoEnv, self).__init__()
+        self.historical_numbers = historical_numbers
+        self.action_space = spaces.Box(low=0, high=1, shape=(10,), dtype=np.float32)
+        self.observation_space = spaces.Box(low=0, high=1, shape=(10,), dtype=np.float32)
+
+    def reset(self):
+        return np.zeros(10, dtype=np.float32)
+
+def step(self, action):
+    if action.size == 0:
+        return np.zeros(10, dtype=np.float32), -1.0, True, {}
+
+    selected_numbers = set(np.argsort(action)[-3:])
+    target_numbers = set(self.target_numbers_list[self.current_index])
+
+    match_count = len(selected_numbers & target_numbers)
+    # cycle_scores 繧� self.cycle_scores 縺ｧ謖√▲縺ｦ縺�↑縺��ｴ蜷医�縲�←蠖薙↑繝�ヵ繧ｩ繝ｫ繝亥､繧剃ｽｿ逕ｨ縺吶ｋ
+    avg_cycle_score = 999  # 莉ｮ縺ｫ蝗ｺ螳壼､繧定ｨｭ螳�
+    reward = match_count * 0.5 + max(0, 1 - avg_cycle_score / 50)
+
+    done = True
+    obs = np.zeros(10, dtype=np.float32)
+    return obs, reward, done, {}
+
+class DiversityEnv(gym.Env):
+    def __init__(self, historical_numbers):
+        super(DiversityEnv, self).__init__()
+        self.historical_numbers = historical_numbers
+        self.action_space = spaces.Box(low=0, high=1, shape=(10,), dtype=np.float32)
+        self.observation_space = spaces.Box(low=0, high=1, shape=(10,), dtype=np.float32)
+        self.previous_outputs = set()
+
+    def reset(self):
+        return np.zeros(10, dtype=np.float32)
+
+    def step(self, action):
+        if action.size == 0:
+            return np.zeros(10, dtype=np.float32), -1.0, True, {}  # 繧ｨ繝ｩ繝ｼ蝗樣∩
+
+        selected = np.argsort(action)[-3:]  # 縺ｾ縺溘�[-4:]
+
+        selected = tuple(sorted(np.argsort(action)[-4:]))
+        reward = 1.0 if selected not in self.previous_outputs else -1.0
+        self.previous_outputs.add(selected)
+        return np.zeros(10, dtype=np.float32), reward, True, {}
+
+class CycleEnv(gym.Env):
+    def __init__(self, historical_numbers):
+        super(CycleEnv, self).__init__()
+        self.historical_numbers = historical_numbers
+        self.action_space = spaces.Box(low=0, high=1, shape=(10,), dtype=np.float32)
+        self.observation_space = spaces.Box(low=0, high=1, shape=(10,), dtype=np.float32)
+        self.cycle_scores = calculate_number_cycle_score(historical_numbers)
+
+    def reset(self):
+        return np.zeros(10, dtype=np.float32)
+
+    def step(self, action):
+        if action.size == 0:
+            return np.zeros(10, dtype=np.float32), -1.0, True, {}  # 繧ｨ繝ｩ繝ｼ蝗樣∩
+
+        selected = np.argsort(action)[-3:]  # 縺ｾ縺溘�[-4:]
+
+        selected = np.argsort(action)[-4:]
+        avg_cycle = np.mean([self.cycle_scores.get(n, 999) for n in selected])
+        reward = max(0, 1 - (avg_cycle / 50))
+        return np.zeros(10, dtype=np.float32), reward, True, {}
+
+class ProfitLotoEnv(gym.Env):
+    def __init__(self, historical_numbers):
+        super(ProfitLotoEnv, self).__init__()
+        self.historical_numbers = historical_numbers
+        self.action_space = spaces.Box(low=0, high=1, shape=(10,), dtype=np.float32)
+        self.observation_space = spaces.Box(low=0, high=1, shape=(10,), dtype=np.float32)
+
+    def reset(self):
+        return np.zeros(10, dtype=np.float32)
+
+    def step(self, action):
+        if action.size == 0:
+            return np.zeros(10, dtype=np.float32), -1.0, True, {}  # 繧ｨ繝ｩ繝ｼ蝗樣∩
+
+        selected = np.argsort(action)[-3:]  # 縺ｾ縺溘�[-4:]
+
+        selected = list(np.argsort(action)[-3:])
+        reward_table = {
+            "繧ｹ繝医Ξ繝ｼ繝�": 90000,
+            "繝懊ャ繧ｯ繧ｹ": 10000,
+            "繝溘ル": 4000,
+            "縺ｯ縺壹ｌ": -200
+        }
+        best_reward = -200
+        for winning in self.historical_numbers:
+            result = classify_numbers3_prize(selected, winning)
+            reward = reward_table.get(result, -200)
+            if reward > best_reward:
+                best_reward = reward
+        return np.zeros(10, dtype=np.float32), best_reward, True, {}
+
+class MultiAgentPPOTrainer:
+    def __init__(self, historical_data, total_timesteps=5000):
+        self.historical_data = historical_data
+        self.total_timesteps = total_timesteps
+        self.agents = {}
+
+    def train_agents(self):
+        envs = {
+            "accuracy": LotoEnv(self.historical_data),
+            "diversity": DiversityEnv(self.historical_data),
+            "cycle": CycleEnv(self.historical_data),
+            "profit": ProfitLotoEnv(self.historical_data)  # 笘� 縺薙％繧定ｿｽ蜉�
+        }
+
+        for name, env in envs.items():
+            model = PPO("MlpPolicy", env, verbose=0)
+            model.learn(total_timesteps=self.total_timesteps)
+            self.agents[name] = model
+            print(f"[INFO] PPO {name} 繧ｨ繝ｼ繧ｸ繧ｧ繝ｳ繝亥ｭｦ鄙貞ｮ御ｺ�")
+
+    def predict_all(self, num_candidates=50):
+        predictions = []
+        for name, model in self.agents.items():
+            obs = model.env.reset()
+            for _ in range(num_candidates // 3):
+                action, _ = model.predict(obs)
+                selected = list(np.argsort(action)[-4:])
+                predictions.append((selected, 0.9))  # 菫｡鬆ｼ蠎ｦ縺ｯ莉ｮ
+        return predictions
+
+class AdversarialLotoEnv(gym.Env):
+    def __init__(self, target_numbers_list):
+        """
+        GAN縺檎函謌舌＠縺溽分蜿ｷ��target_numbers_list�峨ｒ繧ｿ繝ｼ繧ｲ繝�ヨ縺ｨ縺励�
+        PPO縺ｫ縲後◎繧後ｉ繧貞ｽ薙※縺輔○繧九榊ｯｾ謌ｦ迺ｰ蠅�
+        """
+        super(AdversarialLotoEnv, self).__init__()
+        self.target_numbers_list = target_numbers_list
+        self.current_index = 0
+        self.action_space = spaces.Box(low=0, high=1, shape=(10,), dtype=np.float32)
+        self.observation_space = spaces.Box(low=0, high=1, shape=(10,), dtype=np.float32)
+
+    def reset(self):
+        self.current_index = (self.current_index + 1) % len(self.target_numbers_list)
+        return np.zeros(10, dtype=np.float32)
+
+    def step(self, action):
+        if action.size == 0:
+            return np.zeros(10, dtype=np.float32), -1.0, True, {}
+
+        selected_numbers = set(np.argsort(action)[-3:])
+        target_numbers = set(self.target_numbers_list[self.current_index])
+
+        match_count = len(selected_numbers & target_numbers)
+        avg_cycle_score = np.mean([self.cycle_scores.get(n, 999) for n in selected_numbers])
+        reward = match_count * 0.5 + max(0, 1 - avg_cycle_score / 50)
+
+        done = True
+        obs = np.zeros(10, dtype=np.float32)
+        return obs, reward, done, {}
+
+def score_real_structure_similarity(numbers):
+    """
+    謨ｰ蟄励Μ繧ｹ繝医↓蟇ｾ縺励※縲√梧悽迚ｩ繧峨＠縺�ｧ矩�縺九←縺�°縲阪ｒ隧穂ｾ｡縺吶ｋ繧ｹ繧ｳ繧｢��0縲�1��
+    - 蜷郁ｨ医′10縲�20
+    - 驥崎､�′縺ｪ縺�
+    - 荳ｦ縺ｳ縺梧�鬆� or 髯埼��
+    """
+    if len(numbers) != 3:
+        return 0
+    score = 0
+    if 10 <= sum(numbers) <= 20:
+        score += 1
+    if len(set(numbers)) == 3:
+        score += 1
+    if numbers == sorted(numbers) or numbers == sorted(numbers, reverse=True):
+        score += 1
+    return score / 3  # 譛螟ｧ3轤ｹ貅轤ｹ繧�0縲�1繧ｹ繧ｱ繝ｼ繝ｫ
+
+class LotoGAN(nn.Module):
+    def __init__(self, noise_dim=100):
+        super(LotoGAN, self).__init__()
+        self.generator = nn.Sequential(
+            nn.Linear(noise_dim, 128),
+            nn.ReLU(),
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Linear(64, 10),
+            nn.Sigmoid()
+        )
+        self.discriminator = nn.Sequential(
+            nn.Linear(10, 64),
+            nn.ReLU(),
+            nn.Linear(64, 32),
+            nn.ReLU(),
+            nn.Linear(32, 1),
+            nn.Sigmoid()
+        )
+        self.noise_dim = noise_dim
+
+    def generate_samples(self, num_samples):
+        noise = torch.randn(num_samples, self.noise_dim)
+        with torch.no_grad():
+            samples = self.generator(noise)
+        return samples.numpy()
+
+    def evaluate_generated_numbers(self, sample_tensor):
+        """
+        sample_tensor: shape=(10,) 縺ｮTensor��0縲�1蛟､縺ｧ蜷�焚蟄励�繧ｹ繧ｳ繧｢��
+        荳贋ｽ�3縺､繧帝∈繧薙〒逡ｪ蜿ｷ縺ｫ螟画鋤 竊� 蛻､蛻･蝎ｨ繧ｹ繧ｳ繧｢縺ｨ讒矩�繧ｹ繧ｳ繧｢繧貞粋謌�
+        """
+        numbers = list(np.argsort(sample_tensor.cpu().numpy())[-3:])
+        numbers.sort()
+        real_score = score_real_structure_similarity(numbers)
+
+        with torch.no_grad():
+            discriminator_score = self.discriminator(sample_tensor.unsqueeze(0)).item()
+
+        final_score = 0.3 * discriminator_score + 0.7 * real_score
+        return final_score
+
+class DiffusionNumberGenerator(nn.Module):
+    def __init__(self, noise_dim=16, steps=100):
+        super(DiffusionNumberGenerator, self).__init__()
+        self.noise_dim = noise_dim
+        self.steps = steps
+
+        self.model = nn.Sequential(
+            nn.Linear(noise_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 64),
+            nn.ReLU(),
+            nn.Linear(64, 10),  # 蜷�焚蟄励�繧ｹ繧ｳ繧｢��0縲�9��
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        return self.model(x)
+
+    def generate(self, num_samples=20):
+        samples = []
+        for _ in range(num_samples):
+            noise = torch.randn(1, self.noise_dim)
+            x = noise
+            for _ in range(self.steps):
+                noise_grad = torch.randn_like(x) * 0.1
+                x = x - 0.01 * x + noise_grad
+            with torch.no_grad():
+                scores = self.forward(x).squeeze().numpy()
+            top4 = np.argsort(scores)[-4:]
+            samples.append(sorted(top4.tolist()))
+        return samples
+
+def create_advanced_features(dataframe):
+    dataframe = dataframe.copy()
+    def convert_to_number_list(x):
+        if isinstance(x, str):
+            cleaned = x.strip("[]").replace(",", " ").replace("'", "").replace('"', "")
+            return [int(n) for n in cleaned.split() if n.isdigit()]
+        return x if isinstance(x, list) else [0]
+
+    dataframe['譛ｬ謨ｰ蟄�'] = dataframe['譛ｬ謨ｰ蟄�'].apply(convert_to_number_list)
+    dataframe['謚ｽ縺帙ｓ譌･'] = pd.to_datetime(dataframe['謚ｽ縺帙ｓ譌･'])
+
+    valid_mask = (dataframe['譛ｬ謨ｰ蟄�'].apply(len) == 3)
+    dataframe = dataframe[valid_mask].copy()
+
+    if dataframe.empty:
+        print("[ERROR] 譛牙柑縺ｪ譛ｬ謨ｰ蟄励′蟄伜惠縺励∪縺帙ｓ��4譯√ョ繝ｼ繧ｿ縺後↑縺�ｼ�")
+        return pd.DataFrame()  # 遨ｺ縺ｮDataFrame繧定ｿ斐☆
+
+    nums_array = np.vstack(dataframe['譛ｬ謨ｰ蟄�'].values)
+    features = pd.DataFrame(index=dataframe.index)
+
+    features['謨ｰ蟄怜粋險�'] = nums_array.sum(axis=1)
+    features['謨ｰ蟄怜ｹｳ蝮�'] = nums_array.mean(axis=1)
+    features['譛螟ｧ'] = nums_array.max(axis=1)
+    features['譛蟆�'] = nums_array.min(axis=1)
+    features['讓呎ｺ門￥蟾ｮ'] = np.std(nums_array, axis=1)
+
+    return pd.concat([dataframe, features], axis=1)
+
+def preprocess_data(data):
+    """繝��繧ｿ縺ｮ蜑榊�逅�: 迚ｹ蠕ｴ驥上�菴懈� & 繧ｹ繧ｱ繝ｼ繝ｪ繝ｳ繧ｰ"""
+    
+    # 迚ｹ蠕ｴ驥丈ｽ懈�
+    processed_data = create_advanced_features(data)
+
+    if processed_data.empty:
+        print("繧ｨ繝ｩ繝ｼ: 迚ｹ蠕ｴ驥冗函謌仙ｾ後�繝��繧ｿ縺檎ｩｺ縺ｧ縺吶ゅョ繝ｼ繧ｿ縺ｮ繝輔か繝ｼ繝槭ャ繝医ｒ遒ｺ隱阪＠縺ｦ縺上□縺輔＞縲�")
+        return None, None, None
+
+    print("=== 迚ｹ蠕ｴ驥丈ｽ懈�蠕後�繝��繧ｿ ===")
+    print(processed_data.head())
+
+    # 謨ｰ蛟､迚ｹ蠕ｴ驥上�驕ｸ謚�
+    numeric_features = processed_data.select_dtypes(include=[np.number]).columns
+    X = processed_data[numeric_features].fillna(0)  # 谺�謳榊､繧�0縺ｧ蝓九ａ繧�
+
+    print(f"謨ｰ蛟､迚ｹ蠕ｴ驥上�謨ｰ: {len(numeric_features)}, 繧ｵ繝ｳ繝励Ν謨ｰ: {X.shape[0]}")
+
+    if X.empty:
+        print("繧ｨ繝ｩ繝ｼ: 謨ｰ蛟､迚ｹ蠕ｴ驥上′菴懈�縺輔ｌ縺壹√ョ繝ｼ繧ｿ縺檎ｩｺ縺ｫ縺ｪ縺｣縺ｦ縺�∪縺吶�")
+        return None, None, None
+
+    # 繧ｹ繧ｱ繝ｼ繝ｪ繝ｳ繧ｰ
+    scaler = MinMaxScaler()
+    X_scaled = scaler.fit_transform(X)
+
+    print("=== 繧ｹ繧ｱ繝ｼ繝ｪ繝ｳ繧ｰ蠕後�繝��繧ｿ ===")
+    print(X_scaled[:5])  # 譛蛻昴�5莉ｶ繧定｡ｨ遉ｺ
+
+    # 逶ｮ讓吝､画焚縺ｮ貅門ｙ
+    try:
+        y = np.array([list(map(int, nums)) for nums in processed_data['譛ｬ謨ｰ蟄�']])
+    except Exception as e:
+        print(f"繧ｨ繝ｩ繝ｼ: 逶ｮ讓吝､画焚縺ｮ菴懈�譎ゅ↓蝠城｡後′逋ｺ逕溘＠縺ｾ縺励◆: {e}")
+        return None, None, None
+
+    return X_scaled, y, scaler
+
+def convert_numbers_to_binary_vectors(data):
+    vectors = []
+    for numbers in data['譛ｬ謨ｰ蟄�']:
+        vec = np.zeros(10)
+        for n in numbers:
+            if 0 <= n <= 9:
+                vec[n] = 1
+        vectors.append(vec)
+    return np.array(vectors)
+
+def calculate_prediction_errors(predictions, actual_numbers):
+    """莠域ｸｬ蛟､縺ｨ螳滄圀縺ｮ蠖馴∈邨先棡縺ｮ隱､蟾ｮ繧定ｨ育ｮ励＠縲∫音蠕ｴ驥上→縺励※菫晏ｭ�"""
+    errors = []
+    for pred, actual in zip(predictions, actual_numbers):
+        pred_numbers = set(pred[0])
+        actual_numbers = set(actual)
+        error_count = len(actual_numbers - pred_numbers)
+        errors.append(error_count)
+    
+    return np.mean(errors)
+
+def enforce_grade_structure(predictions, min_required=3):
+    """繧ｹ繝医Ξ繝ｼ繝医�繝懊ャ繧ｯ繧ｹ繝ｻ繝溘ル讒区�繧貞ｿ�★蜷ｫ繧√ｋ (origin蟇ｾ蠢懃沿)"""
+    from itertools import permutations
+
+    forced = []
+    used = set()
+
+    # 繧ｹ繝医Ξ繝ｼ繝域ｧ区��医◎縺ｮ縺ｾ縺ｾ��
+    for pred in predictions:
+        if len(pred) == 3:
+            numbers, conf, origin = pred
+        else:
+            numbers, conf = pred
+            origin = "Unknown"
+
+        t = tuple(numbers)
+        if t not in used:
+            used.add(t)
+            forced.append((t, conf, origin))
+            if len(forced) >= 1:
+                break
+
+    # 繝懊ャ繧ｯ繧ｹ讒区��井ｸｦ縺ｳ譖ｿ縺茨ｼ�
+    for pred in predictions:
+        if len(pred) == 3:
+            numbers, conf, origin = pred
+        else:
+            numbers, conf = pred
+            origin = "Unknown"
+
+        for perm in permutations(numbers):
+            if perm not in used:
+                used.add(perm)
+                forced.append((perm, conf, origin))
+                break
+        if len(forced) >= 2:
+            break
+
+    # 繝溘ル讒区���2謨ｰ蟄嶺ｸ閾ｴ��
+    for pred in predictions:
+        if len(pred) == 3:
+            numbers, conf, origin = pred
+        else:
+            numbers, conf = pred
+            origin = "Unknown"
+
+        for known in used:
+            if len(set(numbers) & set(known)) == 2:
+                t = tuple(numbers)
+                if t not in used:
+                    used.add(t)
+                    forced.append((t, conf, origin))
+                    break
+        if len(forced) >= min_required:
+            break
+
+    return forced + predictions
+
+def delete_old_generation_files(directory, days=1):
+    """謖�ｮ壹ヵ繧ｩ繝ｫ繝蜀�〒縲∵欠螳壽律謨ｰ繧医ｊ蜿､縺ГSV繝輔ぃ繧､繝ｫ繧貞炎髯､"""
+    now = datetime.now()
+    deleted = 0
+    for filename in os.listdir(directory):
+        filepath = os.path.join(directory, filename)
+        if os.path.isfile(filepath) and filename.endswith(".csv"):
+            try:
+                modified_time = datetime.fromtimestamp(os.path.getmtime(filepath))
+                if (now - modified_time).days >= days:
+                    os.remove(filepath)
+                    deleted += 1
+            except Exception as e:
+                print(f"[WARNING] 繝輔ぃ繧､繝ｫ蜑企勁繧ｨ繝ｩ繝ｼ: {filename} 竊� {e}")
+    if deleted:
+        print(f"[INFO] {deleted} 莉ｶ縺ｮ蜿､縺�ｸ紋ｻ｣繝輔ぃ繧､繝ｫ繧貞炎髯､縺励∪縺励◆")
+
+def save_self_predictions(predictions, file_path="self_predictions.csv", max_records=100, historical_data=None):
+    """莠域ｸｬ邨先棡繧辰SV縺ｫ菫晏ｭ倥＠縲∽ｸ閾ｴ謨ｰ縺ｨ遲臥ｴ壹ｂ險倬鹸"""
+    rows = []
+    valid_grades = ["縺ｯ縺壹ｌ", "繝懊ャ繧ｯ繧ｹ", "繧ｹ繝医Ξ繝ｼ繝�"]  
+    for numbers, confidence in predictions:
+        match_count = "-"
+        prize = "-"
+        if historical_data is not None:
+            actual_list = [parse_number_string(x) for x in historical_data['譛ｬ謨ｰ蟄�'].tolist()]
+            match_count = max(len(set(numbers) & set(actual)) for actual in actual_list)
+            prize = max(
+                (classify_numbers3_prize(numbers, actual) for actual in actual_list),
+                key=lambda p: valid_grades.index(p) if p in valid_grades else -1
+            )
+        rows.append(numbers + [confidence, match_count, prize])
+
+    # 譌｢蟄倥ヵ繧｡繧､繝ｫ縺悟ｭ伜惠縺励∽ｸｭ霄ｫ縺檎ｩｺ縺ｧ縺ｪ縺��ｴ蜷医�縺ｿ隱ｭ縺ｿ霎ｼ繧
+    if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
+        try:
+            existing = pd.read_csv(file_path, header=None).values.tolist()
+            rows = existing + rows
+        except pd.errors.EmptyDataError:
+            print(f"[WARNING] {file_path} 縺ｯ遨ｺ縺ｮ縺溘ａ縲∬ｪｭ縺ｿ霎ｼ縺ｿ繧偵せ繧ｭ繝��縺励∪縺吶�")
+    else:
+        print(f"[INFO] {file_path} 縺檎ｩｺ縺句ｭ伜惠縺励↑縺�◆繧√∵眠隕丈ｽ懈�縺励∪縺吶�")
+
+    # 譛譁ｰ max_records 莉ｶ縺ｫ蛻ｶ髯舌＠縺ｦ菫晏ｭ�
+    rows = rows[-max_records:]
+    df = pd.DataFrame(rows)
+    df.to_csv(file_path, index=False, header=False)
+    print(f"[INFO] 閾ｪ蟾ｱ莠域ｸｬ繧� {file_path} 縺ｫ菫晏ｭ假ｼ域怙螟ｧ{max_records}莉ｶ��")
+
+    # 煤 荳紋ｻ｣蛻･繝輔ぃ繧､繝ｫ縺ｮ菫晏ｭ�
+    gen_dir = "self_predictions_gen"
+    os.makedirs(gen_dir, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    generation_file = os.path.join(gen_dir, f"self_predictions_gen_{timestamp}.csv")
+    df.to_csv(generation_file, indexrandom.seed(SEED)
 np.random.seed(SEED)
 torch.manual_seed(SEED)
 torch.cuda.manual_seed_all(SEED)
