@@ -93,7 +93,7 @@ elif "予測評価" in menu:
 elif "分析グラフ" in menu:
     st.markdown("## 📉 予測の分析グラフ")
 
-    if os.path.exists("evaluation_result.csv"):
+    if os.path.exists("progress_dashboard.txt"):
         from numbers3_predictor import generate_progress_dashboard_text
 
         st.info("📊 月別収益・直近5日間の成績をテキストで表示します")
