@@ -772,7 +772,7 @@ def reinforce_top_features(X, feature_names, target_scores, top_n=5):
     return reinforced_X
 
 class MemoryEncoder(nn.Module):
-    def __init__(self, vocab_size=10, embed_dim=64, num_layers=2, nhead=4):
+    def __init__(self, vocab_size=10, embed_dim=128, num_layers=2, nhead=4):
         super().__init__()
         self.embedding = nn.Embedding(vocab_size, embed_dim)
         encoder_layer = nn.TransformerEncoderLayer(d_model=embed_dim, nhead=nhead)
