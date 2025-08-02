@@ -42,7 +42,6 @@ st.markdown("<h1 style='color:#FF4B4B;'>🎯 Numbers3 予測AI</h1>", unsafe_all
 menu = st.sidebar.radio("📌 メニュー", [
     "🧠 最新予測表示",
     "📊 予測評価",
-    "📉 予測分析グラフ",
     "🧾 予測結果表示"
 ])
 
@@ -85,32 +84,6 @@ elif "予測評価" in menu:
         st.markdown("### 📋 評価結果")
         st.dataframe(eval_df, use_container_width=True)
 
-# 予測分析グラフ
-elif "分析グラフ" in menu:
-    st.markdown("## 📉 予測の分析グラフ")
-
-    if os.path.exists("progress_dashboard.txt"):
-        from numbers3_predictor import generate_progress_dashboard_text
-
-        st.info("📊 月別収益・直近5日間の成績をテキストで表示します")
-
-        try:
-            # ダッシュボード.txtを生成
-            generate_progress_dashboard_text()
-
-            # 生成したファイルを読み込んで表示
-            if os.path.exists("progress_dashboard.txt"):
-                with open("progress_dashboard.txt", encoding="utf-8") as f:
-                    dashboard_text = f.read()
-                st.text_area("📈 成績ダッシュボード", dashboard_text, height=400)
-            else:
-                st.warning("⚠️ progress_dashboard.txt が生成されていません。")
-
-        except Exception as e:
-            st.error(f"❌ ダッシュボード生成中にエラー: {e}")
-
-    else:
-        st.warning("⚠️ evaluation_result.csv が見つかりません。先に予測・評価を実行してください。")
 
 # 予測結果表示
 elif "予測結果" in menu:
