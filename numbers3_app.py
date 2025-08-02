@@ -6,10 +6,6 @@ import matplotlib.pyplot as plt
 import os
 from datetime import datetime, time
 from zoneinfo import ZoneInfo
-from numbers3_predictor import (
-    main_with_improved_predictions,
-    evaluate_and_summarize_predictions
-)
 
 # ========= ファイル定義 =========
 LOG_FILE = "last_prediction_log.txt"
